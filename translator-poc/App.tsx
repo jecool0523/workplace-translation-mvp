@@ -23,6 +23,7 @@ import {
   TranslationEntry,
   translationMemory
 } from "./src/data/translationMemory";
+import { requestAiTranslation } from "./src/data/aiTranslator";
 
 type TabKey = "live" | "emergency" | "glossary" | "logs";
 
@@ -56,6 +57,10 @@ export default function App() {
   const [targetLang, setTargetLang] = useState<LanguageCode>("vi");
   const [input, setInput] = useState("컨베이어 근처로 가지 마세요.");
   const [isListening, setIsListening] = useState(false);
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [aiEnabled, setAiEnabled] = useState(false);
+  const [apiKey, setApiKey] = useState("");
+  const [aiStatus, setAiStatus] = useState("오프라인 seed 번역");
   const [result, setResult] = useState<TranslationResult>(() => translate(input, "ko", "vi"));
   const [logs, setLogs] = useState<LogItem[]>([]);
 
@@ -66,8 +71,7 @@ export default function App() {
     );
   }, [input]);
 
-  const runTranslation = (text = input) => {
-    const next = translate(text, sourceLang, targetLang);
+  const addLog = (next: TranslationResult) => {
     setResult(next);
     setLogs((current) => [
       {
@@ -82,6 +86,39 @@ export default function App() {
       },
       ...current
     ]);
+  };
+
+  const runTranslation = async (text = input) => {
+    if (isTranslating) {
+      return;
+    }
+
+    setIsTranslating(true);
+    try {
+      if (aiEnabled && apiKey.trim()) {
+        setAiStatus("AI 번역 중");
+        const aiResult = await requestAiTranslation({
+          text,
+          sourceLang,
+          targetLang,
+          apiKey: apiKey.trim()
+        });
+        addLog(aiResult);
+        setAiStatus("AI + 현장 데이터 적용");
+        return;
+      }
+
+      const next = translate(text, sourceLang, targetLang);
+      addLog(next);
+      setAiStatus(aiEnabled ? "API 키 필요" : "오프라인 seed 번역");
+    } catch (error) {
+      const next = translate(text, sourceLang, targetLang);
+      addLog({ ...next, strategy: `offline-after-ai-error:${next.strategy}` });
+      setAiStatus("AI 실패 · 오프라인 대체");
+      Alert.alert("AI 번역 실패", error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.");
+    } finally {
+      setIsTranslating(false);
+    }
   };
 
   const toggleLanguage = () => {
@@ -150,6 +187,12 @@ export default function App() {
               strategy={result.strategy}
               matchedTerms={matchedTerms}
               isListening={isListening}
+              isTranslating={isTranslating}
+              aiEnabled={aiEnabled}
+              apiKey={apiKey}
+              aiStatus={aiStatus}
+              onToggleAi={() => setAiEnabled((value) => !value)}
+              onChangeApiKey={setApiKey}
               onTranslate={() => runTranslation()}
               onToggleLanguage={toggleLanguage}
               onListen={simulateListening}
@@ -196,7 +239,7 @@ function Header() {
       </View>
       <View style={styles.signalBadge}>
         <View style={styles.signalDot} />
-        <Text style={styles.signalText}>오프라인 seed</Text>
+        <Text style={styles.signalText}>AI ready</Text>
       </View>
     </View>
   );
@@ -211,6 +254,12 @@ function LivePanel({
   strategy,
   matchedTerms,
   isListening,
+  isTranslating,
+  aiEnabled,
+  apiKey,
+  aiStatus,
+  onToggleAi,
+  onChangeApiKey,
   onTranslate,
   onToggleLanguage,
   onListen,
@@ -224,6 +273,12 @@ function LivePanel({
   strategy: string;
   matchedTerms: GlossaryTerm[];
   isListening: boolean;
+  isTranslating: boolean;
+  aiEnabled: boolean;
+  apiKey: string;
+  aiStatus: string;
+  onToggleAi: () => void;
+  onChangeApiKey: (value: string) => void;
   onTranslate: () => void;
   onToggleLanguage: () => void;
   onListen: () => void;
@@ -242,6 +297,29 @@ function LivePanel({
         </View>
       </View>
 
+      <View style={styles.aiCard}>
+        <View style={styles.aiHeader}>
+          <View>
+            <Text style={styles.cardTitle}>AI 현장 번역</Text>
+            <Text style={styles.aiStatus}>{aiStatus}</Text>
+          </View>
+          <Pressable style={[styles.aiToggle, aiEnabled && styles.aiToggleOn]} onPress={onToggleAi}>
+            <Text style={[styles.aiToggleText, aiEnabled && styles.aiToggleTextOn]}>{aiEnabled ? "ON" : "OFF"}</Text>
+          </Pressable>
+        </View>
+        {aiEnabled && (
+          <TextInput
+            value={apiKey}
+            onChangeText={onChangeApiKey}
+            style={styles.keyInput}
+            placeholder="OpenAI API key"
+            placeholderTextColor="#8A94A6"
+            secureTextEntry
+            autoCapitalize="none"
+          />
+        )}
+      </View>
+
       <View style={styles.liveCard}>
         <View style={styles.cardHeader}>
           <Text style={styles.cardTitle}>실시간 입력</Text>
@@ -256,9 +334,9 @@ function LivePanel({
           placeholderTextColor="#8A94A6"
         />
         <View style={styles.actionRow}>
-          <Pressable style={styles.secondaryButton} onPress={onTranslate}>
+          <Pressable style={[styles.secondaryButton, isTranslating && styles.buttonDisabled]} onPress={onTranslate}>
             <Ionicons name="language" size={18} color="#101820" />
-            <Text style={styles.secondaryButtonText}>번역</Text>
+            <Text style={styles.secondaryButtonText}>{isTranslating ? "처리 중" : aiEnabled ? "AI 번역" : "번역"}</Text>
           </Pressable>
           <Pressable style={styles.primaryButton} onPress={onListen}>
             <Ionicons name={isListening ? "radio" : "mic"} size={22} color="#FFFFFF" />
@@ -498,6 +576,59 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 16
   },
+  aiCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 8,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#CDEBDD"
+  },
+  aiHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12
+  },
+  aiStatus: {
+    marginTop: 4,
+    color: "#657184",
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "700"
+  },
+  aiToggle: {
+    width: 58,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#EEF2F7"
+  },
+  aiToggleOn: {
+    backgroundColor: "#0E7A4F"
+  },
+  aiToggleText: {
+    color: "#657184",
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "900"
+  },
+  aiToggleTextOn: {
+    color: "#FFFFFF"
+  },
+  keyInput: {
+    height: 44,
+    marginTop: 12,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: "#F7F9FC",
+    borderWidth: 1,
+    borderColor: "#D8DEE8",
+    color: "#101820",
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "700"
+  },
   sectionLabel: {
     color: "#B6C2D2",
     fontSize: 12,
@@ -571,6 +702,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#EEF2F7"
+  },
+  buttonDisabled: {
+    opacity: 0.62
   },
   secondaryButtonText: {
     color: "#101820",
