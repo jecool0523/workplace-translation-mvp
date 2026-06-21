@@ -30,6 +30,10 @@ npm.cmd install
 npm.cmd run start
 ```
 
+## 웹 배포
+
+`main` 브랜치에 `translator-poc` 변경 사항이 푸시되면 GitHub Actions가 Expo 웹 정적 빌드를 만들고 GitHub Pages에 배포합니다.
+
 ## 주의
 
 번역 데이터는 MVP seed입니다. 안전/긴급 지시문과 은어는 베트남어 네이티브 및 현장 담당자 검수를 거친 뒤 운영 환경에 적용해야 합니다.
