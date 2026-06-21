@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "현장 통역 PoC",
+    "slug": "workplace-translator-poc",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "workplacetranslator",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "현장 음성을 인식해 안전 통역을 제공하기 위해 마이크 접근이 필요합니다."
+      }
+    },
+    "android": {
+      "permissions": [
+        "RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-asset",
+      "expo-font"
+    ]
+  }
+}
