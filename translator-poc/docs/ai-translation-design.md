@@ -13,7 +13,7 @@ The MVP uses a separated speech pipeline because it is cheaper to operate, easie
 3. Text AI translation: if AI mode is enabled and an OpenAI API key is present, the app calls the OpenAI Responses API.
 4. Context injection: the prompt includes source and target language, raw utterance, matched glossary terms, translation memory examples, emergency phrase examples, dataset counts, and a JSON output contract.
 5. Fallback: if the AI request fails, the app falls back to local translation memory.
-6. TTS: the translated result is ready for speaker output. Native builds use Expo Speech, while the web PoC displays the target text for speaker simulation.
+6. TTS: when AI mode and an OpenAI API key are present, the web PoC calls OpenAI speech generation and plays the generated audio. If that fails, the app falls back to browser speech synthesis on web or Expo Speech on native builds.
 
 ## Why This Helps Field Terms
 
@@ -29,6 +29,7 @@ The current GitHub Pages build is a client-side PoC. For production, do not ship
 - stores `OPENAI_API_KEY` on the server
 - accepts `text`, `sourceLang`, `targetLang`, and matched local context
 - accepts audio uploads for STT and forwards them to OpenAI audio transcriptions
+- accepts translated text for TTS and forwards it to OpenAI speech generation
 - calls the same OpenAI Responses API contract
 - rate-limits requests per device or site
 - logs anonymized utterance/domain/risk metadata for later terminology review

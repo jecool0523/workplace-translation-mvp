@@ -25,6 +25,14 @@ export type AiTranscriptionRequest = {
   model?: string;
 };
 
+export type AiSpeechRequest = {
+  text: string;
+  apiKey: string;
+  voice?: string;
+  model?: string;
+  instructions?: string;
+};
+
 export type AiTranslationResult = {
   entry: TranslationEntry;
   strategy: "ai-context";
@@ -193,6 +201,41 @@ export async function requestAudioTranscription({
   }
 
   return transcript;
+}
+
+export async function requestTextToSpeechAudioUrl({
+  text,
+  apiKey,
+  voice = "alloy",
+  model = "gpt-4o-mini-tts",
+  instructions
+}: AiSpeechRequest) {
+  const response = await fetch("https://api.openai.com/v1/audio/speech", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model,
+      voice,
+      input: text,
+      response_format: "mp3",
+      ...(instructions?.trim() ? { instructions: instructions.trim() } : {})
+    })
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || `OpenAI TTS request failed with ${response.status}`);
+  }
+
+  if (Platform.OS !== "web") {
+    throw new Error("OpenAI TTS audio playback is currently wired for the web PoC.");
+  }
+
+  const audioBlob = await response.blob();
+  return URL.createObjectURL(audioBlob);
 }
 
 export async function requestAiTranslation({

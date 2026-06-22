@@ -24,7 +24,7 @@ import {
   TranslationEntry,
   translationMemory
 } from "./src/data/translationMemory";
-import { requestAiTranslation, requestAudioTranscription } from "./src/data/aiTranslator";
+import { requestAiTranslation, requestAudioTranscription, requestTextToSpeechAudioUrl } from "./src/data/aiTranslator";
 
 type TabKey = "live" | "emergency" | "glossary" | "logs";
 
@@ -75,6 +75,7 @@ export default function App() {
   const [input, setInput] = useState("컨베이어 근처로 가지 마세요.");
   const [isListening, setIsListening] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const [aiEnabled, setAiEnabled] = useState(false);
   const [autoSpeak, setAutoSpeak] = useState(true);
   const [apiKey, setApiKey] = useState("");
@@ -275,22 +276,70 @@ export default function App() {
 
       if (translated && autoSpeak) {
         setPipelineStatus("TTS 송출");
-        speak(translated.entry);
+        await speak(translated.entry);
       }
     } finally {
       setIsListening(false);
     }
   };
 
-  const speak = (entry: TranslationEntry) => {
-    if (Platform.OS === "web") {
-      Alert.alert("스피커 송출", entry.target);
-      return;
+  const speakWithDeviceTts = (entry: TranslationEntry) => {
+    if (Platform.OS === "web" && "speechSynthesis" in globalThis) {
+      const utterance = new SpeechSynthesisUtterance(entry.target);
+      utterance.lang = entry.targetLang === "vi" ? "vi-VN" : "ko-KR";
+      utterance.rate = entry.risk === "critical" ? 0.86 : 0.92;
+      globalThis.speechSynthesis.cancel();
+      globalThis.speechSynthesis.speak(utterance);
+      return true;
     }
+
     Speech.speak(entry.target, {
       language: entry.targetLang === "vi" ? "vi-VN" : "ko-KR",
       rate: entry.risk === "critical" ? 0.82 : 0.9
     });
+    return true;
+  };
+
+  const speak = async (entry: TranslationEntry) => {
+    if (isSpeaking) {
+      return;
+    }
+
+    setIsSpeaking(true);
+    let openAiPlaybackStarted = false;
+    try {
+      if (aiEnabled && apiKey.trim() && Platform.OS === "web") {
+        try {
+          setPipelineStatus("OpenAI TTS 생성 중");
+          const audioUrl = await requestTextToSpeechAudioUrl({
+            text: entry.target,
+            apiKey: apiKey.trim(),
+            instructions:
+              "Speak clearly for a noisy manufacturing floor. Keep the delivery direct, calm, and easy to understand."
+          });
+          const { sound } = await Audio.Sound.createAsync({ uri: audioUrl }, { shouldPlay: true });
+          openAiPlaybackStarted = true;
+          setPipelineStatus("OpenAI TTS 재생");
+          sound.setOnPlaybackStatusUpdate((status) => {
+            if (status.isLoaded && status.didJustFinish) {
+              sound.unloadAsync();
+              URL.revokeObjectURL(audioUrl);
+              setIsSpeaking(false);
+            }
+          });
+          return;
+        } catch (error) {
+          setAiStatus("OpenAI TTS 실패 · 기기 TTS 대체");
+        }
+      }
+
+      setPipelineStatus("기기 TTS 송출");
+      speakWithDeviceTts(entry);
+    } finally {
+      if (!openAiPlaybackStarted) {
+        setIsSpeaking(false);
+      }
+    }
   };
 
   return (
@@ -314,6 +363,7 @@ export default function App() {
               matchedTerms={matchedTerms}
               isListening={isListening}
               isTranslating={isTranslating}
+              isSpeaking={isSpeaking}
               aiEnabled={aiEnabled}
               autoSpeak={autoSpeak}
               apiKey={apiKey}
@@ -384,6 +434,7 @@ function LivePanel({
   matchedTerms,
   isListening,
   isTranslating,
+  isSpeaking,
   aiEnabled,
   autoSpeak,
   apiKey,
@@ -406,6 +457,7 @@ function LivePanel({
   matchedTerms: GlossaryTerm[];
   isListening: boolean;
   isTranslating: boolean;
+  isSpeaking: boolean;
   aiEnabled: boolean;
   autoSpeak: boolean;
   apiKey: string;
@@ -445,7 +497,7 @@ function LivePanel({
         <View style={styles.pipelineRow}>
           <PipelineStep icon="mic" label="STT" active={isListening || pipelineStatus === "STT 입력 중"} />
           <PipelineStep icon="language" label="텍스트 번역" active={isTranslating || pipelineStatus === "텍스트 번역"} />
-          <PipelineStep icon="volume-high" label="TTS" active={pipelineStatus.includes("TTS")} />
+          <PipelineStep icon="volume-high" label="TTS" active={isSpeaking || pipelineStatus.includes("TTS")} />
         </View>
         <View style={styles.pipelineFooter}>
           <Text style={styles.pipelineStatus}>{pipelineStatus}</Text>
@@ -512,7 +564,7 @@ function LivePanel({
         </View>
         <Pressable style={styles.speakerButton} onPress={onSpeak}>
           <Ionicons name="volume-high" size={19} color="#FFFFFF" />
-          <Text style={styles.speakerButtonText}>스피커로 송출</Text>
+          <Text style={styles.speakerButtonText}>{isSpeaking ? "TTS 재생 중" : "스피커로 송출"}</Text>
         </Pressable>
       </View>
 
