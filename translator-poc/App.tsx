@@ -39,6 +39,12 @@ type TranslationResult = {
   strategy: string;
 };
 
+type TranslationOptions = {
+  activeSourceLang?: LanguageCode;
+  activeTargetLang?: LanguageCode;
+  strategyPrefix?: string;
+};
+
 const languageNames: Record<LanguageCode, string> = {
   ko: "한국어",
   vi: "Tiếng Việt"
@@ -59,8 +65,10 @@ export default function App() {
   const [isListening, setIsListening] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
   const [aiEnabled, setAiEnabled] = useState(false);
+  const [autoSpeak, setAutoSpeak] = useState(true);
   const [apiKey, setApiKey] = useState("");
-  const [aiStatus, setAiStatus] = useState("오프라인 seed 번역");
+  const [aiStatus, setAiStatus] = useState("MVP: STT → 텍스트 번역 → TTS");
+  const [pipelineStatus, setPipelineStatus] = useState("대기 중");
   const [result, setResult] = useState<TranslationResult>(() => translate(input, "ko", "vi"));
   const [logs, setLogs] = useState<LogItem[]>([]);
 
@@ -88,34 +96,50 @@ export default function App() {
     ]);
   };
 
-  const runTranslation = async (text = input) => {
+  const runTranslation = async (text = input, options: TranslationOptions = {}) => {
     if (isTranslating) {
-      return;
+      return undefined;
     }
+
+    const activeSourceLang = options.activeSourceLang ?? sourceLang;
+    const activeTargetLang = options.activeTargetLang ?? targetLang;
 
     setIsTranslating(true);
     try {
+      setPipelineStatus("텍스트 번역");
       if (aiEnabled && apiKey.trim()) {
-        setAiStatus("AI 번역 중");
+        setAiStatus("텍스트 AI 번역 중");
         const aiResult = await requestAiTranslation({
           text,
-          sourceLang,
-          targetLang,
+          sourceLang: activeSourceLang,
+          targetLang: activeTargetLang,
           apiKey: apiKey.trim()
         });
-        addLog(aiResult);
+        const next = options.strategyPrefix
+          ? { ...aiResult, strategy: `${options.strategyPrefix}-${aiResult.strategy}` }
+          : aiResult;
+        addLog(next);
         setAiStatus("AI + 현장 데이터 적용");
-        return;
+        setPipelineStatus("TTS 준비");
+        return next;
       }
 
-      const next = translate(text, sourceLang, targetLang);
+      const offlineResult = translate(text, activeSourceLang, activeTargetLang);
+      const next = options.strategyPrefix
+        ? { ...offlineResult, strategy: `${options.strategyPrefix}-${offlineResult.strategy}` }
+        : offlineResult;
       addLog(next);
-      setAiStatus(aiEnabled ? "API 키 필요" : "오프라인 seed 번역");
+      setAiStatus(aiEnabled ? "API 키 필요 · 오프라인 대체" : "오프라인 seed 번역");
+      setPipelineStatus("TTS 준비");
+      return next;
     } catch (error) {
-      const next = translate(text, sourceLang, targetLang);
-      addLog({ ...next, strategy: `offline-after-ai-error:${next.strategy}` });
+      const next = translate(text, activeSourceLang, activeTargetLang);
+      const fallback = { ...next, strategy: `offline-after-ai-error:${next.strategy}` };
+      addLog(fallback);
       setAiStatus("AI 실패 · 오프라인 대체");
+      setPipelineStatus("TTS 준비");
       Alert.alert("AI 번역 실패", error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.");
+      return fallback;
     } finally {
       setIsTranslating(false);
     }
@@ -128,32 +152,72 @@ export default function App() {
     setResult(translate(result.entry.target, targetLang, sourceLang));
   };
 
-  const simulateListening = () => {
+  const captureSpeechToText = () =>
+    new Promise<{ text: string; fromSpeechRecognition: boolean }>((resolve) => {
+      const SpeechRecognition =
+        Platform.OS === "web"
+          ? (globalThis as any).SpeechRecognition ?? (globalThis as any).webkitSpeechRecognition
+          : undefined;
+
+      if (!SpeechRecognition) {
+        const fallback = sampleInputs[Math.floor(Math.random() * sampleInputs.length)];
+        resolve({ text: fallback, fromSpeechRecognition: false });
+        return;
+      }
+
+      const recognition = new SpeechRecognition();
+      let settled = false;
+      recognition.lang = sourceLang === "ko" ? "ko-KR" : "vi-VN";
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
+      recognition.onresult = (event: any) => {
+        const transcript = event.results?.[0]?.[0]?.transcript?.trim();
+        if (transcript) {
+          settled = true;
+          resolve({ text: transcript, fromSpeechRecognition: true });
+        }
+      };
+
+      recognition.onerror = () => {
+        const fallback = sampleInputs[Math.floor(Math.random() * sampleInputs.length)];
+        settled = true;
+        resolve({ text: fallback, fromSpeechRecognition: false });
+      };
+
+      recognition.onend = () => {
+        if (!settled) {
+          const fallback = sampleInputs[Math.floor(Math.random() * sampleInputs.length)];
+          resolve({ text: fallback, fromSpeechRecognition: false });
+        }
+      };
+
+      recognition.start();
+    });
+
+  const simulateListening = async () => {
     setIsListening(true);
-    const next = sampleInputs[Math.floor(Math.random() * sampleInputs.length)];
-    setTimeout(() => {
+    setPipelineStatus("STT 입력 중");
+    try {
+      const { text: next, fromSpeechRecognition } = await captureSpeechToText();
       const directionSource = next.includes("Không") ? "vi" : "ko";
       const directionTarget = directionSource === "ko" ? "vi" : "ko";
       setSourceLang(directionSource);
       setTargetLang(directionTarget);
       setInput(next);
-      const translated = translate(next, directionSource, directionTarget);
-      setResult(translated);
-      setLogs((current) => [
-        {
-          id: `${Date.now()}`,
-          time: new Intl.DateTimeFormat("ko-KR", {
-            hour: "2-digit",
-            minute: "2-digit",
-            second: "2-digit"
-          }).format(new Date()),
-          strategy: `voice-${translated.strategy}`,
-          entry: translated.entry
-        },
-        ...current
-      ]);
+      const translated = await runTranslation(next, {
+        activeSourceLang: directionSource,
+        activeTargetLang: directionTarget,
+        strategyPrefix: fromSpeechRecognition ? "stt" : "stt-demo"
+      });
+
+      if (translated && autoSpeak) {
+        setPipelineStatus("TTS 송출");
+        speak(translated.entry);
+      }
+    } finally {
       setIsListening(false);
-    }, 850);
+    }
   };
 
   const speak = (entry: TranslationEntry) => {
@@ -189,9 +253,12 @@ export default function App() {
               isListening={isListening}
               isTranslating={isTranslating}
               aiEnabled={aiEnabled}
+              autoSpeak={autoSpeak}
               apiKey={apiKey}
               aiStatus={aiStatus}
+              pipelineStatus={pipelineStatus}
               onToggleAi={() => setAiEnabled((value) => !value)}
+              onToggleAutoSpeak={() => setAutoSpeak((value) => !value)}
               onChangeApiKey={setApiKey}
               onTranslate={() => runTranslation()}
               onToggleLanguage={toggleLanguage}
@@ -256,9 +323,12 @@ function LivePanel({
   isListening,
   isTranslating,
   aiEnabled,
+  autoSpeak,
   apiKey,
   aiStatus,
+  pipelineStatus,
   onToggleAi,
+  onToggleAutoSpeak,
   onChangeApiKey,
   onTranslate,
   onToggleLanguage,
@@ -275,9 +345,12 @@ function LivePanel({
   isListening: boolean;
   isTranslating: boolean;
   aiEnabled: boolean;
+  autoSpeak: boolean;
   apiKey: string;
   aiStatus: string;
+  pipelineStatus: string;
   onToggleAi: () => void;
+  onToggleAutoSpeak: () => void;
   onChangeApiKey: (value: string) => void;
   onTranslate: () => void;
   onToggleLanguage: () => void;
@@ -300,11 +373,23 @@ function LivePanel({
       <View style={styles.aiCard}>
         <View style={styles.aiHeader}>
           <View>
-            <Text style={styles.cardTitle}>AI 현장 번역</Text>
+            <Text style={styles.cardTitle}>MVP 통역 파이프라인</Text>
             <Text style={styles.aiStatus}>{aiStatus}</Text>
           </View>
           <Pressable style={[styles.aiToggle, aiEnabled && styles.aiToggleOn]} onPress={onToggleAi}>
             <Text style={[styles.aiToggleText, aiEnabled && styles.aiToggleTextOn]}>{aiEnabled ? "ON" : "OFF"}</Text>
+          </Pressable>
+        </View>
+        <View style={styles.pipelineRow}>
+          <PipelineStep icon="mic" label="STT" active={isListening || pipelineStatus === "STT 입력 중"} />
+          <PipelineStep icon="language" label="텍스트 번역" active={isTranslating || pipelineStatus === "텍스트 번역"} />
+          <PipelineStep icon="volume-high" label="TTS" active={pipelineStatus.includes("TTS")} />
+        </View>
+        <View style={styles.pipelineFooter}>
+          <Text style={styles.pipelineStatus}>{pipelineStatus}</Text>
+          <Pressable style={[styles.autoSpeakToggle, autoSpeak && styles.autoSpeakToggleOn]} onPress={onToggleAutoSpeak}>
+            <Ionicons name={autoSpeak ? "volume-high" : "volume-mute"} size={15} color={autoSpeak ? "#FFFFFF" : "#657184"} />
+            <Text style={[styles.autoSpeakText, autoSpeak && styles.autoSpeakTextOn]}>자동 TTS</Text>
           </Pressable>
         </View>
         {aiEnabled && (
@@ -318,6 +403,9 @@ function LivePanel({
             autoCapitalize="none"
           />
         )}
+        <Text style={styles.realtimeNote}>
+          향후 확장: 이 파이프라인 뒤에 gpt-realtime-translate WebRTC 세션을 붙여 핸즈프리 동시통역 모드로 전환할 수 있습니다.
+        </Text>
       </View>
 
       <View style={styles.liveCard}>
@@ -373,6 +461,23 @@ function LivePanel({
       </View>
 
       <DatasetStrip />
+    </View>
+  );
+}
+
+function PipelineStep({
+  icon,
+  label,
+  active
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  active: boolean;
+}) {
+  return (
+    <View style={[styles.pipelineStep, active && styles.pipelineStepActive]}>
+      <Ionicons name={icon} size={16} color={active ? "#0E7A4F" : "#657184"} />
+      <Text style={[styles.pipelineStepText, active && styles.pipelineStepTextActive]}>{label}</Text>
     </View>
   );
 }
@@ -628,6 +733,80 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 17,
     fontWeight: "700"
+  },
+  pipelineRow: {
+    marginTop: 14,
+    flexDirection: "row",
+    gap: 8
+  },
+  pipelineStep: {
+    flex: 1,
+    minHeight: 38,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#D8DEE8",
+    backgroundColor: "#F7F9FC",
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 5
+  },
+  pipelineStepActive: {
+    borderColor: "#B6E2CE",
+    backgroundColor: "#EAF8F1"
+  },
+  pipelineStepText: {
+    color: "#657184",
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "900"
+  },
+  pipelineStepTextActive: {
+    color: "#0B6B45"
+  },
+  pipelineFooter: {
+    marginTop: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10
+  },
+  pipelineStatus: {
+    flex: 1,
+    color: "#4D5A6C",
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800"
+  },
+  autoSpeakToggle: {
+    minWidth: 92,
+    height: 32,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: "#EEF2F7",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5
+  },
+  autoSpeakToggleOn: {
+    backgroundColor: "#0E7A4F"
+  },
+  autoSpeakText: {
+    color: "#657184",
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "900"
+  },
+  autoSpeakTextOn: {
+    color: "#FFFFFF"
+  },
+  realtimeNote: {
+    marginTop: 10,
+    color: "#657184",
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: "600"
   },
   sectionLabel: {
     color: "#B6C2D2",

@@ -4,13 +4,16 @@
 
 The PoC supports an AI-assisted Korean/Vietnamese workplace translation path. The AI path is designed to improve translation of manufacturing safety language by injecting the researched field data into every request.
 
-## Runtime Flow
+## MVP Runtime Flow
 
-1. User enters or simulates an utterance.
-2. The app computes matching glossary terms from the local dataset.
-3. If AI mode is enabled and an OpenAI API key is present, the app calls the OpenAI Responses API.
-4. The prompt includes source and target language, raw utterance, matched glossary terms, translation memory examples, emergency phrase examples, dataset counts, and a JSON output contract.
-5. If the AI request fails, the app falls back to local translation memory.
+The MVP uses a separated speech pipeline because it is cheaper to operate, easier to debug, and better for terminology control than a fully speech-to-speech session.
+
+1. STT: the user taps the mic. On web, the PoC attempts browser speech recognition and falls back to a sample utterance when unsupported.
+2. Context retrieval: the app computes matching glossary terms from the local dataset.
+3. Text AI translation: if AI mode is enabled and an OpenAI API key is present, the app calls the OpenAI Responses API.
+4. Context injection: the prompt includes source and target language, raw utterance, matched glossary terms, translation memory examples, emergency phrase examples, dataset counts, and a JSON output contract.
+5. Fallback: if the AI request fails, the app falls back to local translation memory.
+6. TTS: the translated result is ready for speaker output. Native builds use Expo Speech, while the web PoC displays the target text for speaker simulation.
 
 ## Why This Helps Field Terms
 
@@ -29,6 +32,18 @@ The current GitHub Pages build is a client-side PoC. For production, do not ship
 - rate-limits requests per device or site
 - logs anonymized utterance/domain/risk metadata for later terminology review
 - blocks or flags safety-critical low-confidence translations for human review
+
+## Realtime Expansion Path
+
+Keep the MVP boundary as `audio input -> transcript -> field-context translation -> voice output`. Later, add a second hands-free mode backed by `gpt-realtime-translate`:
+
+- keep the same glossary and translation memory retrieval layer
+- request a short-lived Realtime session token from the server
+- connect the mobile client to OpenAI Realtime over WebRTC
+- inject field terminology as session instructions or compact context
+- preserve the current STT/text/TTS path as the low-cost, auditable default
+
+This lets the product start with controlled cost and terminology review, then add lower-latency simultaneous interpretation when the field UX requires it.
 
 ## Review Loop
 
