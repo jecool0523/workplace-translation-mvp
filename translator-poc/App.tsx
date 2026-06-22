@@ -491,7 +491,7 @@ function LivePanel({
             <Text style={styles.aiStatus}>{aiStatus}</Text>
           </View>
           <Pressable style={[styles.aiToggle, aiEnabled && styles.aiToggleOn]} onPress={onToggleAi}>
-            <Text style={[styles.aiToggleText, aiEnabled && styles.aiToggleTextOn]}>{aiEnabled ? "ON" : "OFF"}</Text>
+            <Text style={[styles.aiToggleText, aiEnabled && styles.aiToggleTextOn]}>{aiEnabled ? "AI ON" : "AI OFF"}</Text>
           </Pressable>
         </View>
         <View style={styles.pipelineRow}>
@@ -506,17 +506,21 @@ function LivePanel({
             <Text style={[styles.autoSpeakText, autoSpeak && styles.autoSpeakTextOn]}>자동 TTS</Text>
           </Pressable>
         </View>
-        {aiEnabled && (
+        <View style={styles.apiKeyBlock}>
+          <Text style={styles.apiKeyLabel}>OpenAI API key</Text>
           <TextInput
             value={apiKey}
             onChangeText={onChangeApiKey}
-            style={styles.keyInput}
-            placeholder="OpenAI API key"
+            style={[styles.keyInput, !aiEnabled && styles.keyInputInactive]}
+            placeholder="sk-... 입력 후 AI ON"
             placeholderTextColor="#8A94A6"
             secureTextEntry
             autoCapitalize="none"
           />
-        )}
+          <Text style={styles.apiKeyHelp}>
+            이 키로 AI 텍스트 번역, OpenAI STT, OpenAI TTS를 함께 호출합니다. AI OFF 상태에서는 오프라인 seed 번역을 사용합니다.
+          </Text>
+        </View>
         <Text style={styles.realtimeNote}>
           향후 확장: 이 파이프라인 뒤에 gpt-realtime-translate WebRTC 세션을 붙여 핸즈프리 동시통역 모드로 전환할 수 있습니다.
         </Text>
@@ -819,8 +823,9 @@ const styles = StyleSheet.create({
     fontWeight: "700"
   },
   aiToggle: {
-    width: 58,
+    minWidth: 76,
     height: 34,
+    paddingHorizontal: 10,
     borderRadius: 17,
     alignItems: "center",
     justifyContent: "center",
@@ -840,7 +845,7 @@ const styles = StyleSheet.create({
   },
   keyInput: {
     height: 44,
-    marginTop: 12,
+    marginTop: 6,
     paddingHorizontal: 12,
     borderRadius: 8,
     backgroundColor: "#F7F9FC",
@@ -850,6 +855,26 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 17,
     fontWeight: "700"
+  },
+  keyInputInactive: {
+    borderColor: "#E3E8EF",
+    backgroundColor: "#FBFCFE"
+  },
+  apiKeyBlock: {
+    marginTop: 12
+  },
+  apiKeyLabel: {
+    color: "#101820",
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "900"
+  },
+  apiKeyHelp: {
+    marginTop: 6,
+    color: "#657184",
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: "600"
   },
   pipelineRow: {
     marginTop: 14,
