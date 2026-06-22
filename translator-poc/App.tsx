@@ -275,8 +275,8 @@ export default function App() {
       });
 
       if (translated && autoSpeak) {
-        setPipelineStatus("TTS 송출");
-        await speak(translated.entry);
+        setPipelineStatus("번역 완료 · 기기 TTS 준비");
+        void speak(translated.entry, "device");
       }
     } finally {
       setIsListening(false);
@@ -300,7 +300,7 @@ export default function App() {
     return true;
   };
 
-  const speak = async (entry: TranslationEntry) => {
+  const speak = async (entry: TranslationEntry, mode: "device" | "openai" = "device") => {
     if (isSpeaking) {
       return;
     }
@@ -308,7 +308,7 @@ export default function App() {
     setIsSpeaking(true);
     let openAiPlaybackStarted = false;
     try {
-      if (aiEnabled && apiKey.trim() && Platform.OS === "web") {
+      if (mode === "openai" && aiEnabled && apiKey.trim() && Platform.OS === "web") {
         try {
           setPipelineStatus("OpenAI TTS 생성 중");
           const audioUrl = await requestTextToSpeechAudioUrl({
@@ -375,7 +375,8 @@ export default function App() {
               onTranslate={() => runTranslation()}
               onToggleLanguage={toggleLanguage}
               onListen={simulateListening}
-              onSpeak={() => speak(result.entry)}
+              onSpeak={() => speak(result.entry, "device")}
+              onPremiumSpeak={() => speak(result.entry, "openai")}
             />
           )}
           {tab === "emergency" && <EmergencyPanel onPick={setInputAndTranslate} onSpeak={speak} />}
@@ -446,7 +447,8 @@ function LivePanel({
   onTranslate,
   onToggleLanguage,
   onListen,
-  onSpeak
+  onSpeak,
+  onPremiumSpeak
 }: {
   input: string;
   setInput: (value: string) => void;
@@ -470,6 +472,7 @@ function LivePanel({
   onToggleLanguage: () => void;
   onListen: () => void;
   onSpeak: () => void;
+  onPremiumSpeak: () => void;
 }) {
   return (
     <View style={styles.stack}>
@@ -503,7 +506,7 @@ function LivePanel({
           <Text style={styles.pipelineStatus}>{pipelineStatus}</Text>
           <Pressable style={[styles.autoSpeakToggle, autoSpeak && styles.autoSpeakToggleOn]} onPress={onToggleAutoSpeak}>
             <Ionicons name={autoSpeak ? "volume-high" : "volume-mute"} size={15} color={autoSpeak ? "#FFFFFF" : "#657184"} />
-            <Text style={[styles.autoSpeakText, autoSpeak && styles.autoSpeakTextOn]}>자동 TTS</Text>
+            <Text style={[styles.autoSpeakText, autoSpeak && styles.autoSpeakTextOn]}>자동 기기 TTS</Text>
           </Pressable>
         </View>
         <View style={styles.apiKeyBlock}>
@@ -518,7 +521,7 @@ function LivePanel({
             autoCapitalize="none"
           />
           <Text style={styles.apiKeyHelp}>
-            이 키로 AI 텍스트 번역, OpenAI STT, OpenAI TTS를 함께 호출합니다. AI OFF 상태에서는 오프라인 seed 번역을 사용합니다.
+            이 키로 AI 텍스트 번역과 OpenAI STT를 호출합니다. OpenAI TTS는 고품질 음성 버튼을 누를 때만 사용합니다.
           </Text>
         </View>
         <Text style={styles.realtimeNote}>
@@ -566,10 +569,18 @@ function LivePanel({
             <Text key={tag} style={styles.tag}>{tag}</Text>
           ))}
         </View>
-        <Pressable style={styles.speakerButton} onPress={onSpeak}>
-          <Ionicons name="volume-high" size={19} color="#FFFFFF" />
-          <Text style={styles.speakerButtonText}>{isSpeaking ? "TTS 재생 중" : "스피커로 송출"}</Text>
-        </Pressable>
+        <View style={styles.outputActionRow}>
+          <Pressable style={styles.speakerButton} onPress={onSpeak}>
+            <Ionicons name="volume-high" size={19} color="#FFFFFF" />
+            <Text style={styles.speakerButtonText}>{isSpeaking ? "TTS 재생 중" : "빠른 기기 TTS"}</Text>
+          </Pressable>
+          {aiEnabled && apiKey.trim().length > 0 && (
+            <Pressable style={styles.premiumVoiceButton} onPress={onPremiumSpeak}>
+              <Ionicons name="sparkles" size={17} color="#101820" />
+              <Text style={styles.premiumVoiceText}>고품질 AI 음성</Text>
+            </Pressable>
+          )}
+        </View>
       </View>
 
       <View style={styles.inlineSection}>
@@ -1106,8 +1117,11 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     fontWeight: "800"
   },
-  speakerButton: {
+  outputActionRow: {
     marginTop: 16,
+    gap: 8
+  },
+  speakerButton: {
     height: 46,
     borderRadius: 8,
     flexDirection: "row",
@@ -1120,6 +1134,21 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 14,
     lineHeight: 18,
+    fontWeight: "900"
+  },
+  premiumVoiceButton: {
+    height: 42,
+    borderRadius: 8,
+    flexDirection: "row",
+    gap: 7,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFC83D"
+  },
+  premiumVoiceText: {
+    color: "#101820",
+    fontSize: 13,
+    lineHeight: 17,
     fontWeight: "900"
   },
   inlineSection: {

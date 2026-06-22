@@ -1,6 +1,5 @@
 import { Platform } from "react-native";
 import {
-  datasetProfile,
   emergencyPhrases,
   glossary,
   LanguageCode,
@@ -40,11 +39,17 @@ export type AiTranslationResult = {
 
 type AiTranslationPayload = {
   translation?: string;
+  t?: string;
   plain?: string;
+  p?: string;
   risk?: RiskLevel;
+  r?: RiskLevel;
   confidence?: number;
+  c?: number;
   tags?: string[];
+  g?: string[];
   domain?: string;
+  d?: string;
 };
 
 const languageLabel: Record<LanguageCode, string> = {
@@ -75,20 +80,17 @@ const buildPrompt = ({ text, sourceLang, targetLang }: Omit<AiTranslationRequest
 
   const memoryHints = translationMemory
     .filter((entry) => entry.sourceLang === sourceLang && entry.targetLang === targetLang)
-    .slice(0, 8)
+    .slice(0, 4)
     .map((entry) => ({
       source: entry.source,
       target: entry.target,
-      domain: entry.domain,
-      risk: entry.risk,
-      tags: entry.tags
+      risk: entry.risk
     }));
 
-  const emergencyHints = emergencyPhrases.slice(0, 6).map((entry) => ({
+  const emergencyHints = emergencyPhrases.slice(0, 3).map((entry) => ({
     source: entry.source,
     target: entry.target,
-    risk: entry.risk,
-    plain: entry.plain
+    risk: entry.risk
   }));
 
   return JSON.stringify(
@@ -100,27 +102,22 @@ const buildPrompt = ({ text, sourceLang, targetLang }: Omit<AiTranslationRequest
       domainRules: [
         "Prefer the provided glossary for workplace terms, machine names, PPE, quality defects, emergency actions, and site slang.",
         "Keep emergency and safety instructions short, direct, and command-like.",
-        "Do not soften critical warnings. Preserve numbers such as 119 and machine labels.",
-        "If the utterance is ambiguous, translate the safest reasonable interpretation and mention that site context should be checked in plain."
+        "Do not soften critical warnings. Preserve numbers such as 119 and machine labels."
       ],
-      knownDatasetProfile: datasetProfile.counts,
-      matchedGlossary: sourceTerms.map((term) => ({
+      matchedGlossary: sourceTerms.slice(0, 5).map((term) => ({
         ko: term.ko,
         vi: term.vi,
         aliases: term.aliases,
-        domain: term.domain,
-        risk: term.risk,
-        note: term.note
+        risk: term.risk
       })),
       translationMemoryHints: memoryHints,
       emergencyPhraseHints: emergencyHints,
       outputContract: {
-        translation: "translated utterance only",
-        plain: "brief Korean operational note explaining nuance or safety context",
-        risk: "normal | high | critical",
-        confidence: "number from 0.1 to 0.99",
-        domain: "short domain key",
-        tags: ["2 to 5 concise lowercase tags"]
+        t: "translated utterance only",
+        p: "brief Korean note, max 35 chars",
+        r: "normal | high | critical",
+        c: "number from 0.1 to 0.99",
+        g: ["1 to 3 short tags"]
       }
     },
     null,
@@ -243,7 +240,7 @@ export async function requestAiTranslation({
   sourceLang,
   targetLang,
   apiKey,
-  model = "gpt-4.1-mini"
+  model = "gpt-4.1-nano"
 }: AiTranslationRequest): Promise<AiTranslationResult> {
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
@@ -254,8 +251,9 @@ export async function requestAiTranslation({
     body: JSON.stringify({
       model,
       instructions:
-        "You are a manufacturing workplace interpreter. Return only valid JSON that matches the requested contract. Never include Markdown.",
-      input: buildPrompt({ text, sourceLang, targetLang })
+        "You are a fast manufacturing workplace interpreter. Return compact valid JSON only. Never include Markdown.",
+      input: buildPrompt({ text, sourceLang, targetLang }),
+      max_output_tokens: 180
     })
   });
 
@@ -266,7 +264,7 @@ export async function requestAiTranslation({
 
   const data = await response.json();
   const payload = parseJsonPayload(extractText(data));
-  const target = payload.translation?.trim();
+  const target = (payload.t || payload.translation)?.trim();
 
   if (!target) {
     throw new Error("AI response did not include a translation.");
@@ -278,11 +276,15 @@ export async function requestAiTranslation({
     target,
     sourceLang,
     targetLang,
-    domain: payload.domain?.trim() || "ai_translation",
-    risk: normalizeRisk(payload.risk),
-    confidence: clampConfidence(payload.confidence),
-    plain: payload.plain?.trim() || "AI가 조사 데이터와 현장 용어집을 참고해 번역했습니다.",
-    tags: Array.isArray(payload.tags) && payload.tags.length > 0 ? payload.tags.slice(0, 5) : ["ai", "field-context"]
+    domain: (payload.d || payload.domain)?.trim() || "ai_translation",
+    risk: normalizeRisk(payload.r || payload.risk),
+    confidence: clampConfidence(payload.c ?? payload.confidence),
+    plain: (payload.p || payload.plain)?.trim() || "현장 용어를 반영한 빠른 AI 번역입니다.",
+    tags: Array.isArray(payload.g) && payload.g.length > 0
+      ? payload.g.slice(0, 3)
+      : Array.isArray(payload.tags) && payload.tags.length > 0
+        ? payload.tags.slice(0, 3)
+        : ["ai", "fast"]
   };
 
   return { entry, strategy: "ai-context" };

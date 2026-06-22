@@ -10,17 +10,17 @@ The MVP uses a separated speech pipeline because it is cheaper to operate, easie
 
 1. STT: the user taps the mic. When AI mode and an OpenAI API key are present, the app records about four seconds of audio with Expo AV and sends it to OpenAI audio transcriptions. If that path is unavailable, the web build attempts browser speech recognition and falls back to a sample utterance when unsupported.
 2. Context retrieval: the app computes matching glossary terms from the local dataset.
-3. Text AI translation: if AI mode is enabled and an OpenAI API key is present, the app calls the OpenAI Responses API.
-4. Context injection: the prompt includes source and target language, raw utterance, matched glossary terms, translation memory examples, emergency phrase examples, dataset counts, and a JSON output contract.
+3. Text AI translation: if AI mode is enabled and an OpenAI API key is present, the app calls the OpenAI Responses API with a compact output contract and a fast default text model.
+4. Context injection: the prompt includes source and target language, raw utterance, matched glossary terms, a few translation memory examples, emergency phrase examples, and a short JSON output contract.
 5. Fallback: if the AI request fails, the app falls back to local translation memory.
-6. TTS: when AI mode and an OpenAI API key are present, the web PoC calls OpenAI speech generation and plays the generated audio. If that fails, the app falls back to browser speech synthesis on web or Expo Speech on native builds.
+6. TTS: the translated text is displayed first. Automatic speech uses browser speech synthesis on web or Expo Speech on native builds. OpenAI speech generation is only called when the user taps the high-quality AI voice button.
 
 ## Why This Helps Field Terms
 
 - Glossary terms constrain machine, PPE, quality, emergency, and site-slang vocabulary.
 - Translation memory gives the model preferred phrase style and risk labeling.
 - Emergency phrase hints keep safety instructions short and imperative.
-- The output contract returns risk, confidence, domain, and tags so the UI can keep safety cues visible.
+- The compact output contract returns translation, risk, confidence, and short tags so the UI can keep safety cues visible with fewer generated tokens.
 
 ## Production Path
 
