@@ -8,7 +8,7 @@ The PoC supports an AI-assisted Korean/Vietnamese workplace translation path. Th
 
 The MVP uses a separated speech pipeline because it is cheaper to operate, easier to debug, and better for terminology control than a fully speech-to-speech session.
 
-1. STT: the user taps the mic. On web, the PoC attempts browser speech recognition and falls back to a sample utterance when unsupported.
+1. STT: the user taps the mic. When AI mode and an OpenAI API key are present, the app records about four seconds of audio with Expo AV and sends it to OpenAI audio transcriptions. If that path is unavailable, the web build attempts browser speech recognition and falls back to a sample utterance when unsupported.
 2. Context retrieval: the app computes matching glossary terms from the local dataset.
 3. Text AI translation: if AI mode is enabled and an OpenAI API key is present, the app calls the OpenAI Responses API.
 4. Context injection: the prompt includes source and target language, raw utterance, matched glossary terms, translation memory examples, emergency phrase examples, dataset counts, and a JSON output contract.
@@ -28,6 +28,7 @@ The current GitHub Pages build is a client-side PoC. For production, do not ship
 
 - stores `OPENAI_API_KEY` on the server
 - accepts `text`, `sourceLang`, `targetLang`, and matched local context
+- accepts audio uploads for STT and forwards them to OpenAI audio transcriptions
 - calls the same OpenAI Responses API contract
 - rate-limits requests per device or site
 - logs anonymized utterance/domain/risk metadata for later terminology review

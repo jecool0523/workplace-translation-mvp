@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { Audio } from "expo-av";
 import { StatusBar } from "expo-status-bar";
 import * as Speech from "expo-speech";
 import { useMemo, useState } from "react";
@@ -23,7 +24,7 @@ import {
   TranslationEntry,
   translationMemory
 } from "./src/data/translationMemory";
-import { requestAiTranslation } from "./src/data/aiTranslator";
+import { requestAiTranslation, requestAudioTranscription } from "./src/data/aiTranslator";
 
 type TabKey = "live" | "emergency" | "glossary" | "logs";
 
@@ -45,6 +46,11 @@ type TranslationOptions = {
   strategyPrefix?: string;
 };
 
+type SpeechCaptureResult = {
+  text: string;
+  method: "openai-stt" | "browser-stt" | "demo";
+};
+
 const languageNames: Record<LanguageCode, string> = {
   ko: "한국어",
   vi: "Tiếng Việt"
@@ -56,6 +62,11 @@ const sampleInputs = [
   "안전모를 쓰고 작업장에 들어오세요.",
   "Không lại gần băng tải."
 ];
+
+const sttPrompt = [
+  "Manufacturing workplace speech. Preserve Korean, Vietnamese, machine names, PPE terms, emergency stop, conveyor, safety helmet, defects, and numbers.",
+  "Common terms: 컨베이어, 비상 정지, 안전모, 작업장, băng tải, dừng khẩn cấp, mũ bảo hộ."
+].join(" ");
 
 export default function App() {
   const [tab, setTab] = useState<TabKey>("live");
@@ -152,8 +163,8 @@ export default function App() {
     setResult(translate(result.entry.target, targetLang, sourceLang));
   };
 
-  const captureSpeechToText = () =>
-    new Promise<{ text: string; fromSpeechRecognition: boolean }>((resolve) => {
+  const captureWithBrowserSpeech = () =>
+    new Promise<SpeechCaptureResult>((resolve) => {
       const SpeechRecognition =
         Platform.OS === "web"
           ? (globalThis as any).SpeechRecognition ?? (globalThis as any).webkitSpeechRecognition
@@ -161,7 +172,7 @@ export default function App() {
 
       if (!SpeechRecognition) {
         const fallback = sampleInputs[Math.floor(Math.random() * sampleInputs.length)];
-        resolve({ text: fallback, fromSpeechRecognition: false });
+        resolve({ text: fallback, method: "demo" });
         return;
       }
 
@@ -175,32 +186,83 @@ export default function App() {
         const transcript = event.results?.[0]?.[0]?.transcript?.trim();
         if (transcript) {
           settled = true;
-          resolve({ text: transcript, fromSpeechRecognition: true });
+          resolve({ text: transcript, method: "browser-stt" });
         }
       };
 
       recognition.onerror = () => {
         const fallback = sampleInputs[Math.floor(Math.random() * sampleInputs.length)];
         settled = true;
-        resolve({ text: fallback, fromSpeechRecognition: false });
+        resolve({ text: fallback, method: "demo" });
       };
 
       recognition.onend = () => {
         if (!settled) {
           const fallback = sampleInputs[Math.floor(Math.random() * sampleInputs.length)];
-          resolve({ text: fallback, fromSpeechRecognition: false });
+          resolve({ text: fallback, method: "demo" });
         }
       };
 
       recognition.start();
     });
 
+  const captureWithOpenAiStt = async (): Promise<SpeechCaptureResult> => {
+    const permission = await Audio.requestPermissionsAsync();
+    if (!permission.granted) {
+      throw new Error("마이크 권한이 필요합니다.");
+    }
+
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: true,
+      playsInSilentModeIOS: true
+    });
+
+    const recording = new Audio.Recording();
+    await recording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+    await recording.startAsync();
+    setPipelineStatus("STT 녹음 중 · 4초");
+
+    await new Promise((resolve) => setTimeout(resolve, 4200));
+    await recording.stopAndUnloadAsync();
+    await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+
+    const audioUri = recording.getURI();
+    if (!audioUri) {
+      throw new Error("녹음 파일을 만들지 못했습니다.");
+    }
+
+    setPipelineStatus("OpenAI STT 변환 중");
+    const text = await requestAudioTranscription({
+      audioUri,
+      apiKey: apiKey.trim(),
+      language: sourceLang,
+      prompt: sttPrompt
+    });
+
+    return { text, method: "openai-stt" };
+  };
+
+  const captureSpeechToText = async (): Promise<SpeechCaptureResult> => {
+    if (aiEnabled && apiKey.trim()) {
+      try {
+        return await captureWithOpenAiStt();
+      } catch (error) {
+        setAiStatus("OpenAI STT 실패 · 브라우저 STT 대체");
+        setPipelineStatus("브라우저 STT 시도");
+      }
+    } else {
+      setAiStatus("STT API 키 필요 · 브라우저 STT 시도");
+    }
+
+    return captureWithBrowserSpeech();
+  };
+
   const simulateListening = async () => {
     setIsListening(true);
     setPipelineStatus("STT 입력 중");
     try {
-      const { text: next, fromSpeechRecognition } = await captureSpeechToText();
-      const directionSource = next.includes("Không") ? "vi" : "ko";
+      const { text: next, method } = await captureSpeechToText();
+      const directionSource = method === "demo" && next.includes("Không") ? "vi" : sourceLang;
       const directionTarget = directionSource === "ko" ? "vi" : "ko";
       setSourceLang(directionSource);
       setTargetLang(directionTarget);
@@ -208,7 +270,7 @@ export default function App() {
       const translated = await runTranslation(next, {
         activeSourceLang: directionSource,
         activeTargetLang: directionTarget,
-        strategyPrefix: fromSpeechRecognition ? "stt" : "stt-demo"
+        strategyPrefix: method
       });
 
       if (translated && autoSpeak) {
@@ -426,11 +488,14 @@ function LivePanel({
             <Ionicons name="language" size={18} color="#101820" />
             <Text style={styles.secondaryButtonText}>{isTranslating ? "처리 중" : aiEnabled ? "AI 번역" : "번역"}</Text>
           </Pressable>
-          <Pressable style={styles.primaryButton} onPress={onListen}>
+          <Pressable style={[styles.primaryButton, isListening && styles.primaryButtonActive]} onPress={onListen}>
             <Ionicons name={isListening ? "radio" : "mic"} size={22} color="#FFFFFF" />
-            <Text style={styles.primaryButtonText}>{isListening ? "듣는 중" : "누르고 말하기"}</Text>
+            <Text style={styles.primaryButtonText}>{isListening ? "4초 녹음 중" : "녹음 후 통역"}</Text>
           </Pressable>
         </View>
+        <Text style={styles.inputHint}>
+          AI ON + API 키 입력 시 OpenAI STT로 녹음 음성을 텍스트화하고, 미입력 시 브라우저 STT 또는 샘플 발화로 대체합니다.
+        </Text>
       </View>
 
       <View style={[styles.outputCard, result.risk === "critical" && styles.criticalOutput]}>
@@ -901,11 +966,21 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "#0E7A4F"
   },
+  primaryButtonActive: {
+    backgroundColor: "#D92D20"
+  },
   primaryButtonText: {
     color: "#FFFFFF",
     fontWeight: "900",
     fontSize: 15,
     lineHeight: 19
+  },
+  inputHint: {
+    marginTop: 10,
+    color: "#657184",
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: "600"
   },
   outputCard: {
     backgroundColor: "#FFFFFF",

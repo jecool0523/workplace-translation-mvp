@@ -1,3 +1,4 @@
+import { Platform } from "react-native";
 import {
   datasetProfile,
   emergencyPhrases,
@@ -13,6 +14,14 @@ export type AiTranslationRequest = {
   sourceLang: LanguageCode;
   targetLang: LanguageCode;
   apiKey: string;
+  model?: string;
+};
+
+export type AiTranscriptionRequest = {
+  audioUri: string;
+  apiKey: string;
+  language: LanguageCode;
+  prompt?: string;
   model?: string;
 };
 
@@ -134,6 +143,57 @@ const parseJsonPayload = (text: string): AiTranslationPayload => {
   const jsonText = trimmed.startsWith("{") ? trimmed : trimmed.slice(start, end + 1);
   return JSON.parse(jsonText);
 };
+
+const createAudioUploadPart = async (audioUri: string) => {
+  if (Platform.OS === "web") {
+    const response = await fetch(audioUri);
+    const blob = await response.blob();
+    return new File([blob], "speech.webm", { type: blob.type || "audio/webm" });
+  }
+
+  return {
+    uri: audioUri,
+    name: "speech.m4a",
+    type: "audio/m4a"
+  } as any;
+};
+
+export async function requestAudioTranscription({
+  audioUri,
+  apiKey,
+  language,
+  prompt,
+  model = "gpt-4o-mini-transcribe"
+}: AiTranscriptionRequest) {
+  const formData = new FormData();
+  formData.append("model", model);
+  formData.append("language", language);
+  if (prompt?.trim()) {
+    formData.append("prompt", prompt.trim());
+  }
+  formData.append("file", await createAudioUploadPart(audioUri));
+
+  const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`
+    },
+    body: formData
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || `OpenAI STT request failed with ${response.status}`);
+  }
+
+  const data = await response.json();
+  const transcript = typeof data.text === "string" ? data.text.trim() : "";
+  if (!transcript) {
+    throw new Error("STT response did not include transcript text.");
+  }
+
+  return transcript;
+}
 
 export async function requestAiTranslation({
   text,
