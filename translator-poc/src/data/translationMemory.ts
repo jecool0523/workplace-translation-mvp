@@ -142,6 +142,30 @@ export const translationMemory: TranslationEntry[] = [
     confidence: 0.96,
     plain: "설비를 즉시 멈추는 지시",
     tags: ["emergency-stop", "machine"]
+  },
+  {
+    id: "DEMO-009",
+    source: "오늘은 여기서 시마이합시다.",
+    target: "Hôm nay chúng ta kết thúc công việc tại đây.",
+    sourceLang: "ko",
+    targetLang: "vi",
+    domain: "site_slang",
+    risk: "normal",
+    confidence: 0.92,
+    plain: "작업 마감 지시",
+    tags: ["site-slang", "finish-work"]
+  },
+  {
+    id: "DEMO-010",
+    source: "이거 정리하고 시마이 치세요.",
+    target: "Hãy dọn phần này rồi kết thúc công việc.",
+    sourceLang: "ko",
+    targetLang: "vi",
+    domain: "site_slang",
+    risk: "normal",
+    confidence: 0.9,
+    plain: "정리 후 작업 종료",
+    tags: ["site-slang", "cleanup", "finish-work"]
   }
 ];
 
@@ -241,6 +265,39 @@ export const glossary: GlossaryTerm[] = [
     risk: "normal",
     aliases: ["다시 말해 주세요", "반복"],
     note: "작업 지시를 명확히 확인하기 위한 표현."
+  },
+  {
+    id: "G-006",
+    ko: "시마이",
+    vi: "kết thúc công việc",
+    domain: "site_slang",
+    risk: "normal",
+    aliases: ["시마이하다", "시마이 치다", "마감", "작업 마감", "작업 종료", "철수"],
+    note: "일본어 유래 현장 은어. 작업을 끝내거나 정리하고 철수한다는 뜻으로 쓰임."
+  }
+];
+
+export const prioritySlangHints = [
+  {
+    ko: "시마이",
+    vi: "kết thúc công việc",
+    aliases: ["시마이하다", "시마이 치다", "오늘 여기서 시마이", "작업 마감"],
+    meaning: "작업을 끝내고 정리하거나 철수한다는 현장 은어",
+    caution: "퇴근 지시인지 특정 공정 종료인지 문맥에 맞게 번역"
+  },
+  {
+    ko: "야리끼리",
+    vi: "làm xong phần việc được giao",
+    aliases: ["야리끼리로 하자", "맡은 것만 끝내자"],
+    meaning: "정해진 물량이나 맡은 작업을 끝내는 방식",
+    caution: "무리한 작업 지시로 들리지 않도록 작업 범위를 명확히 번역"
+  },
+  {
+    ko: "데모도",
+    vi: "phụ việc",
+    aliases: ["데모도 붙여", "보조 붙여"],
+    meaning: "보조 작업자 또는 작업 보조",
+    caution: "비하 표현으로 들릴 수 있어 중립적인 보조 작업자로 번역"
   }
 ];
 

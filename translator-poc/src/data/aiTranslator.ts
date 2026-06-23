@@ -3,6 +3,7 @@ import {
   emergencyPhrases,
   glossary,
   LanguageCode,
+  prioritySlangHints,
   RiskLevel,
   TranslationEntry,
   translationMemory
@@ -72,22 +73,29 @@ const normalizeRisk = (value: unknown): RiskLevel => {
 };
 
 const buildPrompt = ({ text, sourceLang, targetLang }: Omit<AiTranslationRequest, "apiKey" | "model">) => {
+  const normalized = text.toLocaleLowerCase();
   const sourceTerms = glossary.filter((term) => {
     const candidates = sourceLang === "ko" ? [term.ko, ...term.aliases] : [term.vi];
-    const normalized = text.toLocaleLowerCase();
     return candidates.some((candidate) => normalized.includes(candidate.toLocaleLowerCase()));
   });
 
+  const matchedPrioritySlang = prioritySlangHints.filter((term) =>
+    [term.ko, ...term.aliases].some((candidate) => normalized.includes(candidate.toLocaleLowerCase()))
+  );
+  const needsRicherContext = matchedPrioritySlang.length > 0 || sourceTerms.some((term) => term.domain === "site_slang");
+  const memoryHintLimit = needsRicherContext ? 6 : 4;
+  const emergencyHintLimit = needsRicherContext ? 4 : 3;
+
   const memoryHints = translationMemory
     .filter((entry) => entry.sourceLang === sourceLang && entry.targetLang === targetLang)
-    .slice(0, 4)
+    .slice(0, memoryHintLimit)
     .map((entry) => ({
       source: entry.source,
       target: entry.target,
       risk: entry.risk
     }));
 
-  const emergencyHints = emergencyPhrases.slice(0, 3).map((entry) => ({
+  const emergencyHints = emergencyPhrases.slice(0, emergencyHintLimit).map((entry) => ({
     source: entry.source,
     target: entry.target,
     risk: entry.risk
@@ -102,8 +110,23 @@ const buildPrompt = ({ text, sourceLang, targetLang }: Omit<AiTranslationRequest
       domainRules: [
         "Prefer the provided glossary for workplace terms, machine names, PPE, quality defects, emergency actions, and site slang.",
         "Keep emergency and safety instructions short, direct, and command-like.",
-        "Do not soften critical warnings. Preserve numbers such as 119 and machine labels."
+        "Do not soften critical warnings. Preserve numbers such as 119 and machine labels.",
+        "For Korean site slang, translate the intended workplace meaning instead of the literal word."
       ],
+      prioritySlangHints: prioritySlangHints.map((term) => ({
+        ko: term.ko,
+        vi: term.vi,
+        aliases: term.aliases,
+        meaning: term.meaning,
+        caution: term.caution
+      })),
+      matchedPrioritySlang: matchedPrioritySlang.map((term) => ({
+        ko: term.ko,
+        vi: term.vi,
+        meaning: term.meaning,
+        caution: term.caution
+      })),
+      contextMode: needsRicherContext ? "slang-richer" : "fast",
       matchedGlossary: sourceTerms.slice(0, 5).map((term) => ({
         ko: term.ko,
         vi: term.vi,
