@@ -108,6 +108,29 @@ export default function App() {
     ]);
   };
 
+  const isOfflineMiss = (strategy: string) => strategy === "fallback" || strategy.endsWith("-fallback");
+
+  const promptAiConnectionCheck = () => {
+    setAiStatus("미등록 발화 · AI API 연결 필요");
+    setPipelineStatus("AI API 키를 입력하고 AI ON 상태를 확인하세요");
+    Alert.alert(
+      "AI API 연결 필요",
+      "오프라인 번역 메모리에 등록되지 않은 표현입니다. OpenAI API key를 입력하면 AI 번역이 자동으로 켜집니다."
+    );
+  };
+
+  const handleApiKeyChange = (value: string) => {
+    setApiKey(value);
+    if (value.trim().length > 0) {
+      setAiEnabled(true);
+      setAiStatus("API 키 감지 · AI ON");
+      return;
+    }
+
+    setAiEnabled(false);
+    setAiStatus("API 키 없음 · 오프라인 seed 번역");
+  };
+
   const runTranslation = async (text = input, options: TranslationOptions = {}) => {
     if (isTranslating) {
       return undefined;
@@ -143,6 +166,9 @@ export default function App() {
       addLog(next);
       setAiStatus(aiEnabled ? "API 키 필요 · 오프라인 대체" : "오프라인 seed 번역");
       setPipelineStatus("TTS 준비");
+      if (!aiEnabled && isOfflineMiss(next.strategy)) {
+        promptAiConnectionCheck();
+      }
       return next;
     } catch (error) {
       const next = translate(text, activeSourceLang, activeTargetLang);
@@ -371,7 +397,7 @@ export default function App() {
               pipelineStatus={pipelineStatus}
               onToggleAi={() => setAiEnabled((value) => !value)}
               onToggleAutoSpeak={() => setAutoSpeak((value) => !value)}
-              onChangeApiKey={setApiKey}
+              onChangeApiKey={handleApiKeyChange}
               onTranslate={() => runTranslation()}
               onToggleLanguage={toggleLanguage}
               onListen={simulateListening}
